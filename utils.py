@@ -5,14 +5,12 @@ Various utility functions used for training models.
 """
 
 import sys
+with open("include_path.txt") as f:
+    path = f.readline()
+sys.path.append(path)
+
 import numpy as np
 import tensorflow as tf
-
-
-def append_tf_dir_to_path() -> None:
-    with open("include_path.txt") as f:
-        path = f.readline()
-    sys.path.append(path)
 
 
 def get_num_gpus() -> int:
