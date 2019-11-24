@@ -4,13 +4,11 @@ Implementation of the CIFAR-10 res net from He et al, 2015
 
 """
 
-import numpy as np
 import utils
-from typing import Any, Dict
 
-utils.append_tf_dir_to_path()
-
+import numpy as np
 import tensorflow as tf
+from typing import Any, Dict, Tuple
 
 
 def augment(image: np.array) -> np.array:
@@ -30,7 +28,7 @@ def augment(image: np.array) -> np.array:
 
 
 def make_conv_and_bn(
-    input_: Any,
+    input: Any,
     n_filters: int,
     kernel_sz: int,
     name: str,
@@ -46,11 +44,11 @@ def make_conv_and_bn(
         dtype=dtype,
         strides=stride,
         kernel_initializer=tf.contrib.layers.xavier_initializer(uniform=False),
-    )(input_)
+    )(input)
     return tf.layers.batch_normalization(conv, training=training)
 
 
-def make_subsample(input_: Any, name: str) -> Any:
+def make_subsample(input: Any, name: str) -> Any:
     """
     Return ops used for projection described in paper.
     
@@ -59,13 +57,13 @@ def make_subsample(input_: Any, name: str) -> Any:
     """
     with tf.variable_scope(name):
         pool = tf.nn.pool(
-            input_=input_,
+            input=input,
             window_shape=(2, 2),
             strides=(2, 2),
             padding="SAME",
             pooling_type="AVG",
         )
-        channels = input_.shape[-1]
+        channels = input.shape[-1]
         new_channels = channels * 2
         return tf.linalg.matmul(
             pool,
@@ -78,7 +76,7 @@ def make_subsample(input_: Any, name: str) -> Any:
 
 
 def make_block(
-    input_: any,
+    input: any,
     n_filters: int,
     kernel_sz: int,
     name: str,
@@ -100,15 +98,15 @@ def make_block(
         else:
             stride = 1
         c1 = make_conv_and_bn(
-            input_, n_filters, kernel_sz, name="c1", stride=stride, training=training
+            input, n_filters, kernel_sz, name="c1", stride=stride, training=training
         )
         relu = tf.nn.relu(c1, name="relu")
         c2 = make_conv_and_bn(relu, n_filters, kernel_sz, name="c2", training=training)
         if residual:
             if subsample:
-                addn = make_subsample(input_, name) + c2
+                addn = make_subsample(input, name) + c2
             else:
-                addn = input_ + c2
+                addn = input + c2
             # bn = tf.layers.batch_normalization(addn, training=training)
             return tf.nn.relu(addn, name="relu2")
         return tf.nn.relu(c2, name="relu2")
@@ -117,7 +115,7 @@ def make_block(
 def add_block_stack(
     start: int,
     end: int,
-    input_: Any,
+    input: Any,
     n_filters: int,
     kernel_sz: int,
     residual: bool,
@@ -131,7 +129,7 @@ def add_block_stack(
         # first block subsamples
         blocks.append(
             make_block(
-                input_,
+                input,
                 n_filters,
                 kernel_sz,
                 name=f"block_{start}",
@@ -154,7 +152,7 @@ def add_block_stack(
         return blocks[-1]
 
 
-def create_graph(name: str, n: int, residual: bool = False):
+def create_graph(name: str, n: int, residual: bool = False, ty: Any = tf.float32):
     """Create all nodes necessary for graph."""
     nodes = {}
     with tf.variable_scope(name):
@@ -258,9 +256,24 @@ def create_graph(name: str, n: int, residual: bool = False):
         return nodes
 
 
+def load_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    datasets = tf.keras.datasets
+    (
+        (train_images, train_labels),
+        (test_images, test_labels),
+    ) = datasets.cifar10.load_data()
+    train_labels = np.array([lab[0] for lab in train_labels])
+    test_labels = np.array([lab[0] for lab in test_labels])
+    return train_images, test_images, train_labels, test_labels
+
+
 def train(
     sess: Any,
     nodes: Dict[str, Any],
+    train_images: np.ndarray,
+    test_images: np.ndarray,
+    train_labels: np.ndarray,
+    test_labels: np.ndarray,
     batch_sz: int = 128,
     test_batch_sz: int = 100,
     n_epochs: int = 100,
