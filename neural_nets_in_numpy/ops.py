@@ -4,7 +4,7 @@ Classes used for training neural nets with numpy.
 
 """
 
-from .math_fns import sigmoid, sigmoid_prime
+from math_fns import sigmoid, sigmoid_prime
 import numpy as np
 from typing import Any, Callable, Optional
 

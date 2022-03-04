@@ -1,1 +1,5 @@
 include_path.txt
+*__pycache__*
+*.ipynb_checkpoints*
+*data*
+*models*
