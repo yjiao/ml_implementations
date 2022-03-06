@@ -139,12 +139,13 @@ class SelfAttentionMulti(nn.Module):
         self.Wv = nn.Linear(dim_io, dim_io, bias=False)
 
         # if causal attention is needed, add a tril mask
-        mask = torch.ones(max_context_size, max_context_size)
         self.causal = causal
         if causal:
+            mask = torch.ones(max_context_size, max_context_size)
             mask = torch.tril(mask)
-        # This is typically used to register a buffer that should not to be considered a model parameter
-        self.register_buffer("mask", mask)
+            # This is typically used to register a buffer that should not to be
+            # considered a model parameter
+            self.register_buffer("mask", mask)
 
         self.proj = nn.Linear(dim_io, dim_io)
 
@@ -154,15 +155,17 @@ class SelfAttentionMulti(nn.Module):
     def attention(
         self, k: torch.tensor, q: torch.tensor, v: torch.tensor
     ) -> torch.tensor:
-        kq = torch.matmul(k, q.transpose(-1, -2)) / np.sqrt(k.shape[-1])
-        seqlen = kq.shape[-1]
-        kq.masked_fill_(self.mask[:seqlen, :seqlen] == 0, -1e9)
+        kq = torch.matmul(q, k.transpose(-1, -2)) / np.sqrt(k.shape[-1])
+        if self.causal:
+            seqlen = kq.shape[-2]
+            kq.masked_fill_(self.mask[:seqlen, :seqlen] == 0, -1e9)
         kq = nn.functional.softmax(kq, dim=-1)
         if self.verbose:
             print("    >>>>> attention method")
             print(f"    kq after masking: (causal = {self.causal})")
-            print("       ", kq.shape)
-            print("       ", kq)
+            print("       k", k.shape)
+            print("       q", q.shape)
+            print("       kq", kq.shape)
         return torch.matmul(kq, v)
 
     def multihead_attention(
@@ -491,6 +494,10 @@ class AttnIsAllYouNeed(nn.Module):
 
         self.linear = nn.Linear(attn_dimension, vocab_size)
 
+        # caching
+        self.cache_encoder_output = False
+        self.prev_enc = None
+
     @classmethod
     def from_config(cls, config: ModelConfig):
         return cls(
@@ -506,12 +513,15 @@ class AttnIsAllYouNeed(nn.Module):
             verbose=config.verbose,
         )
 
-    def forward(self, enc_input, dec_input):
+    def forward_encoders(self, enc_input):
+        """Forward fn for encoders only."""
         enc = self.embedding(enc_input)
         enc = self.position_encoder(enc)
         enc = self.emb_drop(enc)
-        enc = self.encoders(enc)
+        return self.encoders(enc)
 
+    def forward_decoders(self, dec_input, enc):
+        """Forward fn for decoders only."""
         dec = self.embedding(dec_input)
         dec = self.position_encoder(dec)
         dec = self.emb_drop(dec)
@@ -519,8 +529,25 @@ class AttnIsAllYouNeed(nn.Module):
         for decoder in self.decoders:
             dec = decoder(dec, enc)
 
+        return dec
+
+    def forward(self, enc_input, dec_input):
+        if self.cache_encoder_output:
+            enc = self.prev_enc
+            if enc is None:
+                enc = self.forward_encoders(enc_input)
+                self.prev_enc = enc
+        else:
+            enc = self.forward_encoders(enc_input)
+
+        dec = self.forward_decoders(dec_input, enc)
+
         logits = self.linear(dec)
         return logits
+
+    def reset_cache(self):
+        self.cache_encoder_output = True
+        self.prev_enc = None
 
 
 class Autoregressive(nn.Module):

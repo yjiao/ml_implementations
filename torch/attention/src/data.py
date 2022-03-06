@@ -114,7 +114,7 @@ def str_to_tok(
         seqlen = config.max_seqlen - 1
 
     # maybe trim, leave space for end token
-    toks = toks[: config.max_seqlen - 1]
+    toks = toks[:seqlen]
     toks.append(config.end_id)
     toks = trim_pad(toks, config.max_seqlen, config.pad_id)
     return toks

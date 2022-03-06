@@ -43,7 +43,7 @@ def min_gpt_init_weights(module):
 
 
 @torch.no_grad()
-def eval_autoregressive(
+def eval_model(
     model: nn.Module,
     test_loader: torch.utils.data.DataLoader,
     device: str,
@@ -139,14 +139,12 @@ def train_epoch(
 
         if ex_seen >= eval_threshold:
             eval_threshold += eval_threshold
-            test_loss = eval_autoregressive(
-                model, test_loader, device, loss_fn, model_call
-            )
+            test_loss = eval_model(model, test_loader, device, loss_fn, model_call)
             loss_histories[expt_key]["test_loss"].append((ex_seen, test_loss))
             print(
                 f"{ex_seen:>12}: training loss {train_loss:>6}, test loss {test_loss:>6}"
             )
-    test_loss = eval_autoregressive(model, test_loader, device, loss_fn, model_call)
+    test_loss = eval_model(model, test_loader, device, loss_fn, model_call)
     loss_histories[expt_key]["test_loss"].append((ex_seen, test_loss))
     print(
         f"Final: {ex_seen:>12}: training loss {train_loss:>6}, test loss {test_loss:>6}"
