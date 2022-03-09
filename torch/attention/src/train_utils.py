@@ -100,7 +100,9 @@ def train_epoch(
     batch_sz = train_loader.batch_size
     ex_seen = 0
     save_threshold = max(save_every, batch_sz)
+    save_threshold_step = save_threshold
     eval_threshold = max(eval_every, batch_sz)
+    eval_threshold_step = eval_threshold
     for i, (inputs, target) in tqdm(
         enumerate(train_loader),
         total=len(train_loader),
@@ -135,10 +137,10 @@ def train_epoch(
                 torch.save(model.state_dict(), f"{model_dir}/state_{i}")
             else:
                 torch.save(model, f"{model_dir}/model_{i}")
-            save_threshold += save_threshold
+            save_threshold += save_threshold_step
 
         if ex_seen >= eval_threshold:
-            eval_threshold += eval_threshold
+            eval_threshold += eval_threshold_step
             test_loss = eval_model(model, test_loader, device, loss_fn, model_call)
             loss_histories[expt_key]["test_loss"].append((ex_seen, test_loss))
             print(

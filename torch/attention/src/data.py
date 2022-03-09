@@ -196,7 +196,10 @@ class WMT2014(torch.utils.data.IterableDataset):
                     en_toks = self.process_inputs(en_line, de_line, self.config)
                     de_toks = self.process_target(de_line, de_line, self.config)
 
-                    yield [torch.tensor(en_toks), torch.tensor(de_toks)]
+                    yield [
+                        torch.tensor(en_toks).squeeze(),
+                        torch.tensor(de_toks).squeeze(),
+                    ]
                 except UnicodeDecodeError:
                     continue
 
