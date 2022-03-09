@@ -155,18 +155,18 @@ class SelfAttentionMulti(nn.Module):
     def attention(
         self, k: torch.tensor, q: torch.tensor, v: torch.tensor
     ) -> torch.tensor:
-        kq = torch.matmul(q, k.transpose(-1, -2)) / np.sqrt(k.shape[-1])
+        qk = torch.matmul(q, k.transpose(-1, -2)) / np.sqrt(k.shape[-1])
         if self.causal:
-            seqlen = kq.shape[-2]
-            kq.masked_fill_(self.mask[:seqlen, :seqlen] == 0, -1e9)
-        kq = nn.functional.softmax(kq, dim=-1)
+            seqlen = qk.shape[-2]
+            qk.masked_fill_(self.mask[:seqlen, :seqlen] == 0, -1e9)
+        qk = nn.functional.softmax(qk, dim=-1)
         if self.verbose:
             print("    >>>>> attention method")
-            print(f"    kq after masking: (causal = {self.causal})")
+            print(f"    qk after masking: (causal = {self.causal})")
             print("       k", k.shape)
             print("       q", q.shape)
-            print("       kq", kq.shape)
-        return torch.matmul(kq, v)
+            print("       qk", qk.shape)
+        return torch.matmul(qk, v)
 
     def multihead_attention(
         self, k: torch.tensor, q: torch.tensor, v: torch.tensor
