@@ -56,6 +56,45 @@ class RPEModelConfig:
     verbose: bool = False
 
 
+class RelativePositionalEncodingFast(nn.Module):
+    """Implementation of RPE as described in the music transformer paper (Huang et al 2018).
+
+    Note that this only works for causal self attention, which assumes that we
+    want a square matrix output. A different padding scheme is required for
+    rectangular outputs."""
+
+    def __init__(self, max_distance: int, dimension: int, *args, **kwargs):
+        super().__init__()
+
+        self.max_distance = max_distance
+        emb = torch.randn(max_distance, dimension)
+
+        self.embeddings = nn.Parameter(emb)
+
+    def forward(self, Q: torch.tensor):
+        """Apply rpe skew operation."""
+        # Q: (batch, heads, qlen, dim)
+        batch, h, qlen, d = Q.shape
+        srel = self.embeddings[-qlen:, :]
+        if qlen > self.max_distance:
+            # distance
+            # -2 [x x x ...]
+            # -1 [x x x ...]
+            #  0 [x x x ...]
+            # qlen = 5
+            # -2 [x x x ...]
+            # -2 [x x x ...]
+            # -2 [x x x ...]
+            # -1 [x x x ...]
+            #  0 [x x x ...]
+            clip_emb = srel[0].repeat(qlen - self.max_distance, 1)
+            srel = torch.cat((clip_emb, srel), 0)
+        srel = Q @ srel.T
+        srel = F.pad(srel, [1, 0])
+        srel = srel.view((batch, h, qlen + 1, qlen))
+        return srel[:, :, -qlen:, :qlen]
+
+
 class RelativePositionalEncoding(nn.Module):
     def __init__(self, max_context_size: int, max_distance: int, dimension: int):
         super().__init__()
@@ -203,6 +242,47 @@ class RelativeCausalAttention(tm.SelfAttentionMulti):
         return attn
 
 
+class RelativeCausalAttentionFast(RelativeCausalAttention):
+    """
+    Performs RELATIVE multi-headed self attention with masking using Music Transformer skewing.
+
+    Does not implement the feed forward layers after attention.
+
+    Input dimension == output dimension.
+    """
+
+    def attention(
+        self, k: torch.tensor, q: torch.tensor, v: torch.tensor
+    ) -> torch.tensor:
+        # k, q, v have dim (batch, n_heads, seqlen, dim_per_head)
+        qk = torch.matmul(q, k.transpose(-1, -2))
+
+        # reshape for relative position embeddings
+        batch, n_heads, qlen, dim_per_head = q.shape
+        _, _, klen, _ = k.shape
+
+        # add relative positional embeddings
+        # (qlen, klen, dim_per_head)
+        k_rpe = self.key_rpe(q)
+
+        # (qlen, n_heads, batch, dim_per_head)
+        logits = qk + k_rpe
+        logits /= np.sqrt(k.shape[-1])
+
+        if self.causal:
+            logits.masked_fill_(self.mask[:qlen, :klen] == 0, -1e9)
+
+        # (batch, n_heads, qlen, klen)
+        weights = nn.functional.softmax(logits, dim=-1)
+        # (batch, n_heads, qlen, klen) x (batch, n_heads, klen, dim_per_head)
+        # (batch, n_heads, qlen, dim_per_head)
+        qkv = torch.matmul(weights, v)
+        if self.val_rpe is not None:
+            v_rpe = self.val_rpe(q)
+            qkv += v_rpe
+        return qkv
+
+
 class RelativeDecoder(tm.AutoregressiveDecoder):
     """RelativeDecoder module with causal self-attention.
 
@@ -258,7 +338,7 @@ class RelativeDecoder(tm.AutoregressiveDecoder):
                 val_rpe = None
 
         # overwrite parent causal_attn attribute
-        self.causal_attn = RelativeCausalAttention(
+        self.causal_attn = RelativeCausalAttentionFast(
             n_heads=n_heads,
             dim_io=dim_io,
             max_context_size=max_context_size,
@@ -345,7 +425,7 @@ class RelativeGPT(nn.Module):
         # - decoder_ctor: constructor for decoder, either with PE or RPE
         if relative:  # RPE
             pe_ctor = partial(
-                RelativePositionalEncoding,
+                RelativePositionalEncodingFast,
                 max_context_size=max_context_size,
                 max_distance=max_distance,
                 dimension=int(attn_dimension / n_heads),
